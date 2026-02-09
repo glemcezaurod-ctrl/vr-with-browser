@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>VisionOS VR Evolution</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; display: flex; font-family: sans-serif; }
+    .eye { width: 50vw; height: 100vh; position: relative; border-right: 1px solid #111; }
+    video { display: none; }
+    #ui { 
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; 
+      background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc;
+    }
+    .btn { 
+      padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; 
+      border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 0 30px #00ffcc;
+    }
+    p { margin-top: 20px; color: #fff; text-align: center; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <h1>VISION OS VR</h1>
+    <button class="btn" id="start_btn">INITIALIZE CORE</button>
+    <p>1. Разреши доступ к Камере и Движению<br>2. Вставь телефон в очки<br>3. Смотри вперед</p>
+  </div>
+
+  <video id="input_video" playsinline></video>
+  <div id="left" class="eye"></div>
+  <div id="right" class="eye"></div>
+
+  <script>
+    const videoElement = document.getElementById('input_video');
+    const eyeConfigs = [];
+    let worldOffset = new THREE.Vector3(0, 0, 0);
+    let cameraRot = new THREE.Quaternion();
+    
+    // Состояние объектов
+    const game = {
+      gunPos: new THREE.Vector3(0.4, -0.4, -1.2),
+      magPos: new THREE.Vector3(-0.4, -0.4, -1.2),
+      magInGun: false,
+      isHoldingGun: false,
+      isHoldingMag: false
+    };
+
+    function initEye(id) {
+      const container = document.getElementById(id);
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB); // Небо
+      
+      const camera = new THREE.PerspectiveCamera(75, (window.innerWidth/2)/window.innerHeight, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth/2, window.innerHeight);
+      container.appendChild(renderer.domElement);
+
+      // Окружение
+      const ambient = new THREE.AmbientLight(0xffffff, 0.7); scene.add(ambient);
+      const sun = new THREE.DirectionalLight(0xffffff, 1); sun.position.set(5,10,5); scene.add(sun);
+
+      // Пол и трубы (Мир)
+      const worldGroup = new THREE.Group(); scene.add(worldGroup);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(100,100), new THREE.MeshStandardMaterial({color: 0x333333}));
+      floor.rotation.x = -Math.PI/2; floor.position.y = -2; worldGroup.add(floor);
+
+      for(let i=0; i<15; i++) {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 10), new THREE.MeshStandardMaterial({color: 0xffcc00}));
+        pipe.position.set(Math.random()*20-10, 3, Math.random()*-40);
+        worldGroup.add(pipe);
+      }
+
+      // Объекты
+      const gun = new THREE.Group();
+      gun.add(new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.25, 0.5), new THREE.MeshStandardMaterial({color: 0x111111})));
+      worldGroup.add(gun);
+
+      const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.08), new THREE.MeshStandardMaterial({color: 0x444444}));
+      worldGroup.add(mag);
+
+      // Руки (HUD-слой, привязаны к взгляду)
+      const handLayer = new THREE.Group();
+      scene.add(handLayer);
+      const bones = [];
+      for(let i=0; i<42; i++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), new THREE.MeshStandardMaterial({color: 0x00ffcc}));
+        b.visible = false;
+        handLayer.add(b); bones.push(b);
+      }
+
+      return { scene, camera, renderer, worldGroup, gun, mag, handLayer, bones };
+    }
+
+    eyeConfigs.push(initEye('left'), initEye('right'));
+
+    function onResults(results) {
+      let fistsCount = 0;
+      
+      if (results.multiHandLandmarks) {
+        results.multiHandLandmarks.forEach((marks, hIdx) => {
+          // Детектор кулака
+          const isFist = [8,12,16,20].every(i => marks[i].y > marks[i-2].y);
+          if(isFist) fistsCount++;
+
+          // Координаты (0..1 -> мир)
+          const hX = (marks[9].x - 0.5) * 4;
+          const hY = (0.5 - marks[9].y) * 3;
+          const hPos = new THREE.Vector3(hX, hY, -1.2);
+
+          // Взаимодействие
+          if(isFist) {
+            if(hPos.distanceTo(new THREE.Vector3().addVectors(game.gunPos, worldOffset)) < 0.5) {
+              game.isHoldingGun = true;
+              game.gunPos.lerp(new THREE.Vector3().subVectors(hPos, worldOffset), 0.3);
+            } else if(hPos.distanceTo(new THREE.Vector3().addVectors(game.magPos, worldOffset)) < 0.5 && !game.magInGun) {
+              game.isHoldingMag = true;
+              game.magPos.lerp(new THREE.Vector3().subVectors(hPos, worldOffset), 0.3);
+            } else {
+              // Лазанье: если зажал трубу - подтягиваем мир
+              worldOffset.y -= (hY - lastY) * 0.5;
+            }
+          }
+
+          // Отрисовка костей
+          eyeConfigs.forEach(c => {
+            marks.forEach((lp, i) => {
+              const b = c.bones[i + (hIdx*21)];
+              b.visible = true;
+              b.position.set((lp.x-0.5)*4, (0.5-lp.y)*3, -1.2);
+            });
+          });
+          lastY = hY;
+        });
+      }
+
+      // Перезарядка (Магнит)
+      if(game.isHoldingGun && game.isHoldingMag) {
+        if(game.gunPos.distanceTo(game.magPos) < 0.3) {
+          game.magInGun = true; game.isHoldingMag = false;
+          if(navigator.vibrate) navigator.vibrate(100);
+        }
+      }
+      if(game.magInGun) game.magPos.set(game.gunPos.x, game.gunPos.y - 0.25, game.gunPos.z);
+
+      // Телепорт (2 кулака)
+      if(fistsCount >= 2) {
+        worldOffset.z += 0.1;
+      }
+
+      // Рендер
+      eyeConfigs.forEach(c => {
+        c.camera.quaternion.copy(cameraRot);
+        c.handLayer.quaternion.copy(cameraRot); // Руки поворачиваются с головой
+        c.worldGroup.position.copy(worldOffset);
+        c.gun.position.copy(game.gunPos);
+        c.mag.position.copy(game.magPos);
+        c.renderer.render(c.scene, c.camera);
+      });
+    }
+
+    let lastY = 0;
+    const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
+    hands.onResults(onResults);
+
+    const cam = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({image: videoElement}); },
+      facingMode: 'environment', width: 1280, height: 720
+    });
+
+    document.getElementById('start_btn').onclick = async () => {
+      document.getElementById('ui').style.display = 'none';
+      
+      // Гироскоп
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        await DeviceOrientationEvent.requestPermission();
+      }
+      window.addEventListener('deviceorientation', (e) => {
+        const a = THREE.MathUtils.degToRad(e.alpha || 0);
+        const b = THREE.MathUtils.degToRad(e.beta || 0);
+        const g = THREE.MathUtils.degToRad(e.gamma || 0);
+        cameraRot.setFromEuler(new THREE.Euler(b, a, -g, 'YXZ'));
+      });
+
+      cam.start();
+    };
+  </script>
+</body>
+</html>
