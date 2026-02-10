@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR AXIS FIX v26</title>
+  <title>VR FINAL MATRIX v27</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -11,17 +11,14 @@
     body { margin: 0; overflow: hidden; background: #000; display: flex; }
     .eye { width: 50vw; height: 100vh; position: relative; border-right: 1px solid #222; }
     video { display: none; }
-    #ui { 
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; 
-      background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc;
-    }
+    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; }
     .btn { padding: 25px 50px; font-size: 1.5rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; }
-    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 10px 20px; background: rgba(0,255,200,0.3); color: white; border: 1px solid #00ffcc; }
+    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 10px 20px; background: rgba(0,255,200,0.5); color: white; border-radius: 10px; border: none; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR AXIS STABILIZER v26</h1>
+    <h1>VR ENGINE v27</h1>
     <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
@@ -85,7 +82,6 @@
         results.multiHandLandmarks.forEach((marks, hIdx) => {
           const isFist = [8,12,16,20].every(i => marks[i].y > marks[i-2].y);
           if(isFist) fists++;
-
           const x = (marks[9].x - 0.5) * 3.5;
           const y = (0.5 - marks[9].y) * 2.5;
           const currentHandPos = new THREE.Vector3(x, y, -1.2);
@@ -121,7 +117,6 @@
       if(fists >= 2) worldOffset.z += 0.12;
 
       eyeConfigs.forEach(c => {
-        // Применяем калибровку: текущее вращение относительно базового
         c.camera.quaternion.copy(baseQuaternion).invert().multiply(cameraRot);
         c.handHUD.quaternion.copy(c.camera.quaternion); 
         c.world.position.copy(worldOffset);
@@ -148,19 +143,19 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // КОРРЕКЦИЯ ДЛЯ АЛЬБОМНОГО РЕЖИМА
-        const alpha = THREE.MathUtils.degToRad(e.alpha || 0); // Поворот вокруг Z (теперь Y в мире)
-        const beta = THREE.MathUtils.degToRad(e.beta || 0);   // Наклон вперед/назад (X)
-        const gamma = THREE.MathUtils.degToRad(e.gamma || 0); // Наклон влево/вправо (Z)
+        // РАДИКАЛЬНОЕ РЕШЕНИЕ: Прямая переброска осей для Landscape
+        const b = THREE.MathUtils.degToRad(e.beta || 0);   // Наклон телефона (теперь это Поворот)
+        const g = THREE.MathUtils.degToRad(e.gamma || 0);  // Поворот телефона (теперь это Наклон)
+        const a = THREE.MathUtils.degToRad(e.alpha || 0);  // Компас
 
-        // Магия переназначения осей для альбомного режима:
-        // Используем порядок ZXY, который лучше всего подходит для VR
-        const finalEuler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
-        const raw = new THREE.Quaternion().setFromEuler(finalEuler);
+        // В альбомном режиме (Landscape) beta и gamma меняются ролями
+        // Мы собираем новый Euler, принудительно ставя Gamma на место наклона (X)
+        const finalEuler = new THREE.Euler(g, a, b, 'ZXY'); 
+        cameraRot.setFromEuler(finalEuler);
         
-        // Поворот на 90 градусов по X, чтобы выровнять телефон "плашмя"
+        // Коррекция на 90 градусов для альбомного режима
         const fix = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2);
-        cameraRot.copy(fix.multiply(raw));
+        cameraRot.premultiply(fix);
       });
       cam.start();
     };
