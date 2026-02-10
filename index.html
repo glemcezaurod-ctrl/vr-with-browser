@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR STABLE v30 FINAL</title>
+  <title>VR AXIS OVERRIDE v31</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -13,12 +13,12 @@
     video { display: none; }
     #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; text-align: center; }
     .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; }
-    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; font-size: 1.2rem; }
+    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR SYSTEM v30</h1>
+    <h1>VR SYSTEM v31</h1>
     <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
@@ -44,10 +44,8 @@
       container.appendChild(renderer.domElement);
       scene.add(new THREE.AmbientLight(0xffffff, 1));
       const world = new THREE.Group(); scene.add(world);
-      
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(100,100), new THREE.MeshStandardMaterial({color: 0x444444}));
       floor.rotation.x = -Math.PI/2; floor.position.y = -2; world.add(floor);
-
       const handHUD = new THREE.Group(); scene.add(handHUD);
       const bones = [];
       for(let i=0; i<42; i++) {
@@ -72,7 +70,6 @@
         });
       }
       eyeConfigs.forEach(c => {
-        // КЛЮЧЕВАЯ МАТЕМАТИКА: Калибровка через инверсию
         c.camera.quaternion.copy(baseQuaternion).invert().multiply(cameraRot);
         c.handHUD.quaternion.copy(c.camera.quaternion);
         c.world.position.copy(worldOffset);
@@ -93,18 +90,25 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
-        const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
-        const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
+        // РУЧНОЙ МАППИНГ ДЛЯ LANDSCAPE (Телефон на боку)
+        const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0; // Компас
+        const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;   // Портретный наклон
+        const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0; // Портретный крен
 
-        // ПРАВИЛЬНЫЙ ПОРЯДОК ДЛЯ LANDSCAPE (Альбомный режим)
-        // В Three.js 'YXZ' - это стандарт для VR-камер
-        const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
-        const quat = new THREE.Quaternion().setFromEuler(euler);
+        // ПОЛНАЯ ИНВЕРСИЯ:
+        // Наклон головы вверх-вниз теперь зависит от GAMMA
+        // Поворот головы влево-вправо теперь зависит от ALPHA
+        // Крен головы теперь зависит от BETA
         
-        // Разворот на 90 градусов для альбомного режима
-        const orient = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
-        cameraRot.copy(orient.multiply(quat));
+        const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), gamma);
+        const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), alpha);
+        const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), beta);
+
+        cameraRot.copy(qY).multiply(qX).multiply(qZ);
+        
+        // Финальный доворот, чтобы "перед" был "передом"
+        const fix = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI/2);
+        cameraRot.premultiply(fix);
       }, true);
       cam.start();
     };
