@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Spatial OS v46.1 - FIXED</title>
+  <title>Spatial OS v46.2 - FINAL STABLE</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -12,31 +12,32 @@
     #input_video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; transition: opacity 1s; }
     .eye { width: 50vw; height: 100vh; background: transparent; pointer-events: none; }
     #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
-    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px #00ffcc; }
-    #status { margin-top: 20px; color: #888; font-size: 0.9rem; }
+    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px #00ffcc; transition: transform 0.2s; }
+    .btn:active { transform: scale(0.95); }
+    #status { margin-top: 20px; color: #888; font-size: 0.9rem; max-width: 80%; }
   </style>
 </head>
 <body>
   <div id="ui">
     <h1 style="letter-spacing: 5px;">SPATIAL OS</h1>
-    <p>Нажми ENTER для запуска MR-среды</p>
+    <p>Нажми ENTER для запуска системы</p>
     <button class="btn" id="start_btn">ENTER SYSTEM</button>
-    <div id="status">Ожидание взаимодействия...</div>
+    <div id="status">Проверка готовности...</div>
   </div>
 
-  <video id="input_video" playsinline muted></video>
+  <video id="input_video" playsinline muted style="display:none;"></video>
   <div id="left" class="eye"></div>
   <div id="right" class="eye"></div>
 
   <script>
     const videoElement = document.getElementById('input_video');
-    const status = document.getElementById('status');
+    const statusText = document.getElementById('status');
     const eyeConfigs = [];
     let currentYaw = 0, baseYaw = 0, isVR = false;
     let initialDist = 0, initialScale = 1;
     const windows = [];
 
-    // --- Инициализация 3D ---
+    // 1. Создание окна
     function createWindow(title, color, x, y) {
       const group = new THREE.Group();
       const glass = new THREE.Mesh(
@@ -49,6 +50,7 @@
       return group;
     }
 
+    // 2. Инициализация глаза
     function initEye(id) {
       const container = document.getElementById(id);
       const scene = new THREE.Scene();
@@ -58,19 +60,26 @@
       renderer.setSize(window.innerWidth/2, window.innerHeight);
       container.appendChild(renderer.domElement);
 
-      scene.add(new THREE.AmbientLight(0xffffff, 1));
+      scene.add(new THREE.AmbientLight(0xffffff, 1.2));
       const world = new THREE.Group(); scene.add(world);
 
+      // Виртуальное небо
       const stars = new THREE.Points(
-        new THREE.BufferGeometry().setFromPoints(Array(500).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(20))),
+        new THREE.BufferGeometry().setFromPoints(Array(300).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(20))),
         new THREE.PointsMaterial({color: 0xffffff, size: 0.05})
       );
       stars.visible = false; scene.add(stars);
 
-      const gallery = createWindow("Gallery", 0x00ffcc, 0.5, 0);
+      // Окно галереи
+      const gallery = createWindow("Gallery", 0x00ffcc, 0.5, 0.2);
       world.add(gallery);
 
-      const dock = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.2), new THREE.MeshStandardMaterial({color: 0xffffff}));
+      // ЗАМЕНА: Используем CylinderGeometry вместо CapsuleGeometry
+      const dock = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 0.2, 16), 
+        new THREE.MeshStandardMaterial({color: 0xffffff})
+      );
+      dock.rotation.z = Math.PI / 2;
       dock.position.set(0, -0.5, -0.8);
       scene.add(dock);
 
@@ -83,21 +92,27 @@
       return { scene, camera, renderer, world, stars, dock, handHUD, bones };
     }
 
-    eyeConfigs.push(initEye('left'), initEye('right'));
+    // Инициализируем глаза сразу
+    try {
+        eyeConfigs.push(initEye('left'), initEye('right'));
+        statusText.innerText = "Система готова к запуску";
+    } catch(e) {
+        statusText.innerText = "Критическая ошибка: " + e.message;
+    }
 
-    // --- Обработка MediaPipe ---
     function onResults(results) {
       const hands = results.multiHandLandmarks;
       if (hands && hands.length > 0) {
         let h1 = hands[0];
         const p1 = new THREE.Vector3((h1[8].x - 0.5) * 2, (0.5 - h1[8].y) * 1.5, -1.0);
-        const isTap1 = Math.sqrt(Math.pow(h1[8].x-h1[4].x, 2) + Math.pow(h1[8].y-h1[4].y, 2)) < 0.04;
+        const isTap1 = Math.sqrt(Math.pow(h1[8].x-h1[4].x, 2) + Math.pow(h1[8].y-h1[4].y, 2)) < 0.05;
 
-        if (isTap1 && hands.length === 1) {
+        if (isTap1) {
           windows.forEach(win => {
-            if (p1.distanceTo(win.position) < 0.5) win.position.lerp(p1, 0.2);
+            if (p1.distanceTo(win.position) < 0.4) win.position.lerp(p1, 0.2);
           });
-          if (p1.distanceTo(new THREE.Vector3(0, -0.5, -0.8)) < 0.2) {
+          // Клик по доку (VR Switch)
+          if (p1.distanceTo(new THREE.Vector3(0, -0.5, -0.8)) < 0.3) {
             isVR = !isVR;
             videoElement.style.opacity = isVR ? "0" : "1";
             eyeConfigs.forEach(ec => ec.stars.visible = isVR);
@@ -107,7 +122,7 @@
         if (hands.length === 2) {
           let h2 = hands[1];
           const p2 = new THREE.Vector3((h2[8].x - 0.5) * 2, (0.5 - h2[8].y) * 1.5, -1.0);
-          const isTap2 = Math.sqrt(Math.pow(h2[8].x-h2[4].x, 2) + Math.pow(h2[8].y-h2[4].y, 2)) < 0.04;
+          const isTap2 = Math.sqrt(Math.pow(h2[8].x-h2[4].x, 2) + Math.pow(h2[8].y-h2[4].y, 2)) < 0.05;
           if (isTap1 && isTap2) {
             let curDist = p1.distanceTo(p2);
             if (initialDist === 0) { initialDist = curDist; initialScale = windows[0].scale.x; }
@@ -142,30 +157,25 @@
       facingMode: 'environment', width: 1280, height: 720
     });
 
-    // --- ГЛАВНАЯ КНОПКА ЗАПУСКА ---
+    // --- КНОПКА ЗАПУСКА ---
     document.getElementById('start_btn').onclick = async function() {
-      status.innerText = "Запрос разрешений...";
-      
+      statusText.innerText = "Инициализация...";
       try {
-        // 1. Гироскоп
         if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
           const res = await DeviceOrientationEvent.requestPermission();
-          if (res !== 'granted') throw new Error("Нет доступа к гироскопу");
+          if (res !== 'granted') throw new Error("Датчики отклонены");
         }
         window.addEventListener('deviceorientation', (e) => {
           if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha);
         }, true);
 
-        // 2. Камера (принудительно)
-        status.innerText = "Запуск камеры...";
+        statusText.innerText = "Включаю камеру...";
+        videoElement.style.display = "block";
         await cameraHelper.start();
-        videoElement.play(); // Важно для некоторых браузеров
-
-        // 3. Прячем UI
-        document.getElementById('ui').style.display = 'none';
         
+        document.getElementById('ui').style.display = 'none';
       } catch (err) {
-        status.innerText = "Ошибка: " + err.message;
+        statusText.innerText = "Ошибка: " + err.message + ". Убедитесь, что используете HTTPS!";
         console.error(err);
       }
     };
