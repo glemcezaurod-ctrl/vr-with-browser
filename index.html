@@ -3,23 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR STABLE v29</title>
+  <title>VR STABLE v30 FINAL</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; }
-    .eye { width: 50vw; height: 100vh; position: relative; border-right: 1px solid #222; }
+    .eye { width: 50vw; height: 100vh; border-right: 1px solid #222; }
     video { display: none; }
-    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; }
+    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; text-align: center; }
     .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; }
-    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 15px 30px; background: #00ffcc; color: black; border: none; border-radius: 10px; font-weight: bold; }
+    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; font-size: 1.2rem; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR CORE v29</h1>
-    <button class="btn" id="start_btn">START</button>
+    <h1>VR SYSTEM v30</h1>
+    <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
 
@@ -33,8 +33,6 @@
     let worldOffset = new THREE.Vector3(0, 0, 0);
     let cameraRot = new THREE.Quaternion();
     let baseQuaternion = new THREE.Quaternion();
-    
-    const game = { gunPos: new THREE.Vector3(0.5, -0.5, -2), magPos: new THREE.Vector3(-0.5, -0.5, -2), magInGun: false };
 
     function initEye(id) {
       const container = document.getElementById(id);
@@ -44,19 +42,11 @@
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth/2, window.innerHeight);
       container.appendChild(renderer.domElement);
-
       scene.add(new THREE.AmbientLight(0xffffff, 1));
       const world = new THREE.Group(); scene.add(world);
       
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(100,100), new THREE.MeshStandardMaterial({color: 0x444444}));
       floor.rotation.x = -Math.PI/2; floor.position.y = -2; world.add(floor);
-
-      const gun = new THREE.Group();
-      gun.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.6), new THREE.MeshStandardMaterial({color: 0x111111})));
-      world.add(gun);
-
-      const mag = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.25, 0.1), new THREE.MeshStandardMaterial({color: 0x333333}));
-      world.add(mag);
 
       const handHUD = new THREE.Group(); scene.add(handHUD);
       const bones = [];
@@ -64,7 +54,7 @@
         const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), new THREE.MeshStandardMaterial({color: 0x00ffcc}));
         b.visible = false; handHUD.add(b); bones.push(b);
       }
-      return { scene, camera, renderer, world, gun, mag, handHUD, bones };
+      return { scene, camera, renderer, world, handHUD, bones };
     }
 
     eyeConfigs.push(initEye('left'), initEye('right'));
@@ -81,14 +71,11 @@
           });
         });
       }
-
       eyeConfigs.forEach(c => {
-        // Применяем калибровку
+        // КЛЮЧЕВАЯ МАТЕМАТИКА: Калибровка через инверсию
         c.camera.quaternion.copy(baseQuaternion).invert().multiply(cameraRot);
         c.handHUD.quaternion.copy(c.camera.quaternion);
         c.world.position.copy(worldOffset);
-        c.gun.position.copy(game.gunPos);
-        c.mag.position.copy(game.magPos);
         c.renderer.render(c.scene, c.camera);
       });
     }
@@ -96,28 +83,29 @@
     const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
     hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
     hands.onResults(onResults);
-
     const cam = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, facingMode: 'environment', width: 1280, height: 720 });
 
     document.getElementById('start_btn').onclick = async () => {
       document.getElementById('ui').style.display = 'none';
       document.getElementById('recalibrate').style.display = 'block';
-      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         await DeviceOrientationEvent.requestPermission();
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // ИСПОЛЬЗУЕМ КЛАССИЧЕСКИЙ МЕТОД БЕЗ СЛОЖНОЙ МАТЕМАТИКИ
-        // В альбомном режиме: beta - это наклон вперед/назад, gamma - это крен.
         const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
         const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
         const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
 
-        // Принудительно задаем оси для альбомного режима (телефон на боку)
-        // Если изображение снова "странное", попробуй перевернуть телефон на другой бок
-        const euler = new THREE.Euler(gamma, alpha, beta, 'ZXY'); 
-        cameraRot.setFromEuler(euler);
-      });
+        // ПРАВИЛЬНЫЙ ПОРЯДОК ДЛЯ LANDSCAPE (Альбомный режим)
+        // В Three.js 'YXZ' - это стандарт для VR-камер
+        const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+        const quat = new THREE.Quaternion().setFromEuler(euler);
+        
+        // Разворот на 90 градусов для альбомного режима
+        const orient = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2);
+        cameraRot.copy(orient.multiply(quat));
+      }, true);
       cam.start();
     };
 
