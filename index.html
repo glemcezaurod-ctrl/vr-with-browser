@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR VISION v38</title>
+  <title>VR 360 FLAT v39</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -12,17 +12,17 @@
     .eye { width: 50vw; height: 100vh; border-right: 1px solid #222; }
     video { display: none; }
     #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; text-align: center; font-family: sans-serif; }
-    .btn { padding: 20px 50px; font-size: 1.5rem; background: #00ffcc; color: black; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; }
+    .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; color: black; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; }
     #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 15px 30px; background: rgba(0,255,200,0.5); color: white; border-radius: 10px; border: none; font-weight: bold; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR HYBRID ENGINE</h1>
-    <p>Используем камеру для стабилизации</p>
-    <button class="btn" id="start_btn">ЗАПУСК</button>
+    <h1>VR 360 ONLY</h1>
+    <p>Взгляд вверх/вниз отключен для стабильности</p>
+    <button class="btn" id="start_btn">START VR</button>
   </div>
-  <button id="recalibrate" style="display:none;">ЦЕНТРИРОВАТЬ МИР</button>
+  <button id="recalibrate" style="display:none;">CENTER VIEW</button>
 
   <video id="input_video" playsinline></video>
   <div id="left" class="eye"></div>
@@ -31,8 +31,8 @@
   <script>
     const videoElement = document.getElementById('input_video');
     const eyeConfigs = [];
-    let camRotation = { x: 0, y: 0 };
-    let baseRotation = { x: 0, y: 0 };
+    let currentYaw = 0;
+    let baseYaw = 0;
 
     function initEye(id) {
       const container = document.getElementById(id);
@@ -44,14 +44,16 @@
       container.appendChild(renderer.domElement);
 
       scene.add(new THREE.AmbientLight(0xffffff, 1));
-      const grid = new THREE.GridHelper(100, 40, 0x00ffcc, 0x222222);
-      grid.position.y = -2;
+      
+      // Сетка и кубы для ориентира
+      const grid = new THREE.GridHelper(100, 40, 0x00ffcc, 0x444444);
+      grid.position.y = -1.5;
       scene.add(grid);
 
-      // Добавим ориентиры в комнате (кубики), чтобы ты видел, как работает трекинг
-      for(let i=0; i<20; i++) {
-        const box = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color: Math.random() * 0xffffff}));
-        box.position.set(Math.random()*20-10, 0, Math.random()*20-10);
+      for(let i=0; i<30; i++) {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 1), new THREE.MeshStandardMaterial({color: 0x00ffcc, wireframe: true}));
+        const angle = (i / 30) * Math.PI * 2;
+        box.position.set(Math.cos(angle)*15, 0.5, Math.sin(angle)*15);
         scene.add(box);
       }
 
@@ -67,15 +69,13 @@
     eyeConfigs.push(initEye('left'), initEye('right'));
 
     function onResults(results) {
-      // ИСПОЛЬЗУЕМ КИСТЬ РУКИ КАК ДОПОЛНИТЕЛЬНЫЙ ЯКОРЬ
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        // Если рука в кадре, мы можем использовать её положение для уточнения "где перед"
-        const landmarks = results.multiHandLandmarks[0];
+      if (results.multiHandLandmarks) {
         results.multiHandLandmarks.forEach((marks, hIdx) => {
           eyeConfigs.forEach(c => {
             marks.forEach((lp, i) => {
               const b = c.bones[i + (hIdx*21)];
               b.visible = true;
+              // Руки двигаются в 3D, но камера по вертикали стоит на месте
               b.position.set((lp.x-0.5)*3.5, (0.5-lp.y)*2.5, -1.0);
             });
           });
@@ -83,8 +83,8 @@
       }
 
       eyeConfigs.forEach(c => {
-        // Применяем вращение (минус база для калибровки)
-        c.camera.rotation.set(camRotation.x - baseRotation.x, camRotation.y - baseRotation.y, 0, 'YXZ');
+        // ПРИМЕНЯЕМ ТОЛЬКО ПОВОРОТ ВОКРУГ ОСИ Y (ВЛЕВО-ВПРАВО)
+        c.camera.rotation.set(0, currentYaw - baseYaw, 0, 'YXZ');
         c.handHUD.quaternion.copy(c.camera.quaternion);
         c.renderer.render(c.scene, c.camera);
       });
@@ -103,26 +103,17 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // ПРЯМАЯ ПРИВЯЗКА БЕЗ СЛОЖНЫХ МАТРИЦ
-        // e.alpha - это компас (влево-вправо)
-        // e.beta - это наклон (вверх-вниз)
-        
-        // В альбомном режиме iPhone:
-        // Поворот головы = e.alpha
-        // Наклон головы = e.beta - 90 (т.к. телефон стоит вертикально в очках)
-        
-        camRotation.y = THREE.MathUtils.degToRad(e.alpha);
-        let p = THREE.MathUtils.degToRad(e.beta - 90);
-        
-        // Clamp (зажим)
-        camRotation.x = Math.max(-1.5, Math.min(1.5, p));
+        // alpha - это чистый поворот вокруг вертикальной оси (компас)
+        // Мы полностью игнорируем beta и gamma
+        if (e.alpha !== null) {
+          currentYaw = THREE.MathUtils.degToRad(e.alpha);
+        }
       }, true);
       cam.start();
     };
 
     document.getElementById('recalibrate').onclick = () => {
-      baseRotation.x = camRotation.x;
-      baseRotation.y = camRotation.y;
+      baseYaw = currentYaw;
     };
   </script>
 </body>
