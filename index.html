@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR ULTIMATE v34</title>
+  <title>VR CLAMP FINAL v35</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -18,7 +18,7 @@
 </head>
 <body>
   <div id="ui">
-    <h1>VR ENGINE v34</h1>
+    <h1>VR ENGINE v35</h1>
     <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
@@ -89,21 +89,24 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // РАДИКАЛЬНЫЙ МАППИНГ ДЛЯ iPHONE LANDSCAPE
-        // Мы меняем знаки и оси, чтобы "вверх" был "вверх"
-        
-        let pitch = THREE.MathUtils.degToRad(e.gamma || 0); // Наклон
-        let yaw = THREE.MathUtils.degToRad(e.alpha || 0);   // Поворот
-        
-        // КОРРЕКЦИЯ ИНВЕРСИИ: 
-        // Инвертируем pitch, чтобы взгляд вверх работал правильно
-        let finalPitch = -pitch - Math.PI/2; 
-        
-        // ОГРАНИЧЕНИЕ (Clamp), чтобы не было кувырка
-        finalPitch = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, finalPitch));
+        // 1. Получаем углы. Для iPhone в Landscape:
+        // gamma — это наклон вверх/вниз
+        // alpha — это поворот влево/вправо
+        let rawPitch = THREE.MathUtils.degToRad(e.gamma || 0); 
+        let yaw = THREE.MathUtils.degToRad(e.alpha || 0);
 
-        // Сборка через YXZ исключает диагональные смещения
-        const euler = new THREE.Euler(finalPitch, yaw, 0, 'YXZ');
+        // 2. Исправляем инверсию (чтобы вверх был верхом)
+        // И добавляем смещение на 90 градусов, т.к. телефон лежит боком
+        let pitch = -rawPitch - Math.PI/2;
+
+        // 3. ЖЕСТКИЙ ОГРАНИЧИТЕЛЬ (Clamp)
+        // Не даем углу выйти за пределы ~85 градусов вверх и вниз
+        const limit = THREE.MathUtils.degToRad(85);
+        let clampedPitch = Math.max(-limit, Math.min(limit, pitch));
+
+        // 4. Сборка через YXZ (сначала Yaw, потом Pitch)
+        // Это убирает "диагональное" смещение
+        const euler = new THREE.Euler(clampedPitch, yaw, 0, 'YXZ');
         cameraRot.setFromEuler(euler);
       }, true);
       cam.start();
