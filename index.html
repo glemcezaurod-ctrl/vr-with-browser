@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR CLAMP v33</title>
+  <title>VR ULTIMATE v34</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -13,12 +13,12 @@
     video { display: none; }
     #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; text-align: center; }
     .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; }
-    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 15px 30px; background: #00ffcc; border: none; border-radius: 10px; font-weight: bold; }
+    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR ENGINE v33</h1>
+    <h1>VR ENGINE v34</h1>
     <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
@@ -89,14 +89,21 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // РУЧНАЯ СТАБИЛИЗАЦИЯ
-        let pitch = THREE.MathUtils.degToRad(e.gamma || 0) + Math.PI/2; 
-        let yaw = THREE.MathUtils.degToRad(e.alpha || 0);
-
-        // Зажим (Clamp) чтобы не было переворота
-        let clampedPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch - Math.PI/2));
+        // РАДИКАЛЬНЫЙ МАППИНГ ДЛЯ iPHONE LANDSCAPE
+        // Мы меняем знаки и оси, чтобы "вверх" был "вверх"
         
-        const euler = new THREE.Euler(clampedPitch, yaw, 0, 'YXZ');
+        let pitch = THREE.MathUtils.degToRad(e.gamma || 0); // Наклон
+        let yaw = THREE.MathUtils.degToRad(e.alpha || 0);   // Поворот
+        
+        // КОРРЕКЦИЯ ИНВЕРСИИ: 
+        // Инвертируем pitch, чтобы взгляд вверх работал правильно
+        let finalPitch = -pitch - Math.PI/2; 
+        
+        // ОГРАНИЧЕНИЕ (Clamp), чтобы не было кувырка
+        finalPitch = Math.max(-Math.PI/2.2, Math.min(Math.PI/2.2, finalPitch));
+
+        // Сборка через YXZ исключает диагональные смещения
+        const euler = new THREE.Euler(finalPitch, yaw, 0, 'YXZ');
         cameraRot.setFromEuler(euler);
       }, true);
       cam.start();
