@@ -3,43 +3,43 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Spatial OS v46.3 - STEREO</title>
+  <title>Spatial OS v46.4 - DUAL PASSTHROUGH</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; }
-    #input_video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; transition: opacity 1s; }
-    .eye { width: 50vw; height: 100vh; background: transparent; pointer-events: none; border-right: 1px solid rgba(255,255,255,0.1); }
-    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; text-align: center; }
+    #input_video { display: none; }
+    .eye { width: 50vw; height: 100vh; pointer-events: none; }
+    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; }
     .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; }
-    #status { margin-top: 20px; color: #888; }
   </style>
 </head>
 <body>
   <div id="ui">
     <h1>SPATIAL OS</h1>
     <button class="btn" id="start_btn">ENTER SYSTEM</button>
-    <div id="status">Ready</div>
   </div>
 
-  <video id="input_video" playsinline muted style="display:none;"></video>
+  <video id="input_video" playsinline muted></video>
   <div id="left" class="eye"></div>
   <div id="right" class="eye"></div>
 
   <script>
     const videoElement = document.getElementById('input_video');
-    const statusText = document.getElementById('status');
     const eyeConfigs = [];
     let currentYaw = 0, baseYaw = 0, isVR = false;
     let initialDist = 0, initialScale = 1;
     const windows = [];
 
+    // Текстура видео для обоих глаз
+    const videoTexture = new THREE.VideoTexture(videoElement);
+
     function createWindow(title, color, x, y) {
       const group = new THREE.Group();
       const glass = new THREE.Mesh(
         new THREE.PlaneGeometry(0.8, 0.5),
-        new THREE.MeshStandardMaterial({ color: color, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+        new THREE.MeshStandardMaterial({ color: color, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
       );
       group.add(glass);
       group.position.set(x, y, -1.2);
@@ -51,14 +51,19 @@
       const container = document.getElementById(id);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, (window.innerWidth/2)/window.innerHeight, 0.1, 1000);
-      
-      // Смещение камеры для стерео-эффекта (IPD)
       camera.position.x = isRightEye ? 0.03 : -0.03;
 
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setClearColor(0x000000, 0);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth/2, window.innerHeight);
       container.appendChild(renderer.domElement);
+
+      // Фон-видео для Passthrough
+      const videoPlaneGeom = new THREE.PlaneGeometry(4, 2.25);
+      const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+      const videoPlane = new THREE.Mesh(videoPlaneGeom, videoMaterial);
+      videoPlane.position.z = -2; // Чуть дальше объектов
+      camera.add(videoPlane); // Привязываем к камере, чтобы видео всегда было перед глазами
+      scene.add(camera);
 
       scene.add(new THREE.AmbientLight(0xffffff, 1.2));
       const world = new THREE.Group(); scene.add(world);
@@ -73,23 +78,21 @@
       world.add(gallery);
 
       const dock = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 0.2, 16), 
+        new THREE.CylinderGeometry(0.04, 0.04, 0.2, 16), 
         new THREE.MeshStandardMaterial({color: 0xffffff})
       );
       dock.rotation.z = Math.PI / 2;
       dock.position.set(0, -0.5, -0.8);
       scene.add(dock);
 
-      const handHUD = new THREE.Group(); scene.add(handHUD);
       const bones = [];
       for(let i=0; i<42; i++) {
         const b = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffcc}));
-        b.visible = false; handHUD.add(b); bones.push(b);
+        b.visible = false; scene.add(b); bones.push(b);
       }
-      return { scene, camera, renderer, world, stars, dock, handHUD, bones };
+      return { scene, camera, renderer, world, stars, videoPlane, bones };
     }
 
-    // Инициализируем левый и правый глаз
     eyeConfigs.push(initEye('left', false), initEye('right', true));
 
     function onResults(results) {
@@ -105,8 +108,10 @@
           });
           if (p1.distanceTo(new THREE.Vector3(0, -0.5, -0.8)) < 0.3) {
             isVR = !isVR;
-            videoElement.style.opacity = isVR ? "0" : "1";
-            eyeConfigs.forEach(ec => ec.stars.visible = isVR);
+            eyeConfigs.forEach(ec => {
+                ec.stars.visible = isVR;
+                ec.videoPlane.visible = !isVR;
+            });
           }
         }
 
@@ -134,7 +139,6 @@
 
       eyeConfigs.forEach(c => {
         c.camera.rotation.set(0, currentYaw - baseYaw, 0, 'YXZ');
-        c.handHUD.quaternion.copy(c.camera.quaternion);
         c.renderer.render(c.scene, c.camera);
       });
     }
@@ -149,19 +153,14 @@
     });
 
     document.getElementById('start_btn').onclick = async function() {
-      try {
-        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          await DeviceOrientationEvent.requestPermission();
-        }
-        window.addEventListener('deviceorientation', (e) => {
-          if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha);
-        }, true);
-        videoElement.style.display = "block";
-        await cameraHelper.start();
-        document.getElementById('ui').style.display = 'none';
-      } catch (err) {
-        statusText.innerText = "Error: " + err.message;
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        await DeviceOrientationEvent.requestPermission();
       }
+      window.addEventListener('deviceorientation', (e) => {
+        if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha);
+      }, true);
+      await cameraHelper.start();
+      document.getElementById('ui').style.display = 'none';
     };
   </script>
 </body>
