@@ -3,26 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Spatial OS v46.2 - FINAL STABLE</title>
+  <title>Spatial OS v46.3 - STEREO</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; }
     #input_video { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; transition: opacity 1s; }
-    .eye { width: 50vw; height: 100vh; background: transparent; pointer-events: none; }
-    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; text-align: center; padding: 20px; }
-    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px #00ffcc; transition: transform 0.2s; }
-    .btn:active { transform: scale(0.95); }
-    #status { margin-top: 20px; color: #888; font-size: 0.9rem; max-width: 80%; }
+    .eye { width: 50vw; height: 100vh; background: transparent; pointer-events: none; border-right: 1px solid rgba(255,255,255,0.1); }
+    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; text-align: center; }
+    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; }
+    #status { margin-top: 20px; color: #888; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1 style="letter-spacing: 5px;">SPATIAL OS</h1>
-    <p>Нажми ENTER для запуска системы</p>
+    <h1>SPATIAL OS</h1>
     <button class="btn" id="start_btn">ENTER SYSTEM</button>
-    <div id="status">Проверка готовности...</div>
+    <div id="status">Ready</div>
   </div>
 
   <video id="input_video" playsinline muted style="display:none;"></video>
@@ -37,7 +35,6 @@
     let initialDist = 0, initialScale = 1;
     const windows = [];
 
-    // 1. Создание окна
     function createWindow(title, color, x, y) {
       const group = new THREE.Group();
       const glass = new THREE.Mesh(
@@ -50,11 +47,14 @@
       return group;
     }
 
-    // 2. Инициализация глаза
-    function initEye(id) {
+    function initEye(id, isRightEye) {
       const container = document.getElementById(id);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, (window.innerWidth/2)/window.innerHeight, 0.1, 1000);
+      
+      // Смещение камеры для стерео-эффекта (IPD)
+      camera.position.x = isRightEye ? 0.03 : -0.03;
+
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setClearColor(0x000000, 0);
       renderer.setSize(window.innerWidth/2, window.innerHeight);
@@ -63,18 +63,15 @@
       scene.add(new THREE.AmbientLight(0xffffff, 1.2));
       const world = new THREE.Group(); scene.add(world);
 
-      // Виртуальное небо
       const stars = new THREE.Points(
         new THREE.BufferGeometry().setFromPoints(Array(300).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(20))),
         new THREE.PointsMaterial({color: 0xffffff, size: 0.05})
       );
       stars.visible = false; scene.add(stars);
 
-      // Окно галереи
       const gallery = createWindow("Gallery", 0x00ffcc, 0.5, 0.2);
       world.add(gallery);
 
-      // ЗАМЕНА: Используем CylinderGeometry вместо CapsuleGeometry
       const dock = new THREE.Mesh(
         new THREE.CylinderGeometry(0.05, 0.05, 0.2, 16), 
         new THREE.MeshStandardMaterial({color: 0xffffff})
@@ -92,13 +89,8 @@
       return { scene, camera, renderer, world, stars, dock, handHUD, bones };
     }
 
-    // Инициализируем глаза сразу
-    try {
-        eyeConfigs.push(initEye('left'), initEye('right'));
-        statusText.innerText = "Система готова к запуску";
-    } catch(e) {
-        statusText.innerText = "Критическая ошибка: " + e.message;
-    }
+    // Инициализируем левый и правый глаз
+    eyeConfigs.push(initEye('left', false), initEye('right', true));
 
     function onResults(results) {
       const hands = results.multiHandLandmarks;
@@ -111,7 +103,6 @@
           windows.forEach(win => {
             if (p1.distanceTo(win.position) < 0.4) win.position.lerp(p1, 0.2);
           });
-          // Клик по доку (VR Switch)
           if (p1.distanceTo(new THREE.Vector3(0, -0.5, -0.8)) < 0.3) {
             isVR = !isVR;
             videoElement.style.opacity = isVR ? "0" : "1";
@@ -157,26 +148,19 @@
       facingMode: 'environment', width: 1280, height: 720
     });
 
-    // --- КНОПКА ЗАПУСКА ---
     document.getElementById('start_btn').onclick = async function() {
-      statusText.innerText = "Инициализация...";
       try {
         if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          const res = await DeviceOrientationEvent.requestPermission();
-          if (res !== 'granted') throw new Error("Датчики отклонены");
+          await DeviceOrientationEvent.requestPermission();
         }
         window.addEventListener('deviceorientation', (e) => {
           if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha);
         }, true);
-
-        statusText.innerText = "Включаю камеру...";
         videoElement.style.display = "block";
         await cameraHelper.start();
-        
         document.getElementById('ui').style.display = 'none';
       } catch (err) {
-        statusText.innerText = "Ошибка: " + err.message + ". Убедитесь, что используете HTTPS!";
-        console.error(err);
+        statusText.innerText = "Error: " + err.message;
       }
     };
   </script>
