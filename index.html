@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>VR CLAMP FINAL v35</title>
+  <title>VR FINAL MATRIX v36</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -12,16 +12,17 @@
     .eye { width: 50vw; height: 100vh; border-right: 1px solid #222; }
     video { display: none; }
     #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; text-align: center; }
-    .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; }
-    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; }
+    .btn { padding: 25px 60px; font-size: 1.8rem; background: #00ffcc; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; }
+    #recalibrate { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10001; padding: 20px 40px; background: #00ffcc; color: black; border-radius: 15px; font-weight: bold; border: none; font-size: 1.1rem; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>VR ENGINE v35</h1>
+    <h1>VR ENGINE v36</h1>
     <button class="btn" id="start_btn">START VR</button>
   </div>
   <button id="recalibrate" style="display:none;">CENTER VIEW</button>
+
   <video id="input_video" playsinline></video>
   <div id="left" class="eye"></div>
   <div id="right" class="eye"></div>
@@ -33,6 +34,12 @@
     let cameraRot = new THREE.Quaternion();
     let baseQuaternion = new THREE.Quaternion();
 
+    // Глобальные переменные для гироскопа (v36)
+    const zee = new THREE.Vector3(0, 0, 1);
+    const eulerHelper = new THREE.Euler();
+    const q0 = new THREE.Quaternion();
+    const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // Коррекция Landscape
+
     function initEye(id) {
       const container = document.getElementById(id);
       const scene = new THREE.Scene();
@@ -43,8 +50,10 @@
       container.appendChild(renderer.domElement);
       scene.add(new THREE.AmbientLight(0xffffff, 1));
       const world = new THREE.Group(); scene.add(world);
+      
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(100,100), new THREE.MeshStandardMaterial({color: 0x444444}));
       floor.rotation.x = -Math.PI/2; floor.position.y = -2; world.add(floor);
+
       const handHUD = new THREE.Group(); scene.add(handHUD);
       const bones = [];
       for(let i=0; i<42; i++) {
@@ -69,6 +78,7 @@
         });
       }
       eyeConfigs.forEach(c => {
+        // Применяем калибровку: вычитаем начальное вращение из текущего
         c.camera.quaternion.copy(baseQuaternion).invert().multiply(cameraRot);
         c.handHUD.quaternion.copy(c.camera.quaternion);
         c.world.position.copy(worldOffset);
@@ -89,25 +99,28 @@
       }
       
       window.addEventListener('deviceorientation', (e) => {
-        // 1. Получаем углы. Для iPhone в Landscape:
-        // gamma — это наклон вверх/вниз
-        // alpha — это поворот влево/вправо
-        let rawPitch = THREE.MathUtils.degToRad(e.gamma || 0); 
-        let yaw = THREE.MathUtils.degToRad(e.alpha || 0);
+        const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0;
+        const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;
+        const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;
 
-        // 2. Исправляем инверсию (чтобы вверх был верхом)
-        // И добавляем смещение на 90 градусов, т.к. телефон лежит боком
-        let pitch = -rawPitch - Math.PI/2;
+        // 1. Собираем кватернион из углов (стандарт YXZ)
+        eulerHelper.set(beta, alpha, -gamma, 'YXZ');
+        cameraRot.setFromEuler(eulerHelper);
+
+        // 2. Коррекция на ориентацию экрана (альбомная)
+        const orient = window.orientation ? THREE.MathUtils.degToRad(window.orientation) : 0;
+        q0.setFromAxisAngle(zee, -orient);
+        cameraRot.multiply(q0);
+        cameraRot.multiply(q1);
 
         // 3. ЖЕСТКИЙ ОГРАНИЧИТЕЛЬ (Clamp)
-        // Не даем углу выйти за пределы ~85 градусов вверх и вниз
-        const limit = THREE.MathUtils.degToRad(85);
-        let clampedPitch = Math.max(-limit, Math.min(limit, pitch));
-
-        // 4. Сборка через YXZ (сначала Yaw, потом Pitch)
-        // Это убирает "диагональное" смещение
-        const euler = new THREE.Euler(clampedPitch, yaw, 0, 'YXZ');
-        cameraRot.setFromEuler(euler);
+        // Чтобы камера не прыгала через 90 градусов
+        let finalEuler = new THREE.Euler().setFromQuaternion(cameraRot, 'YXZ');
+        const limit = THREE.MathUtils.degToRad(85); // 85 градусов
+        if (finalEuler.x > limit) finalEuler.x = limit;
+        if (finalEuler.x < -limit) finalEuler.x = -limit;
+        
+        cameraRot.setFromEuler(finalEuler);
       }, true);
       cam.start();
     };
