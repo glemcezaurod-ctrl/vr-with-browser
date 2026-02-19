@@ -3,22 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Spatial OS v46.4 - DUAL PASSTHROUGH</title>
+  <title>Spatial OS v46.8 - ULTIMATE</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; }
+    body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; font-family: sans-serif; }
     #input_video { display: none; }
-    .eye { width: 50vw; height: 100vh; pointer-events: none; }
-    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-family: sans-serif; }
-    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; }
+    .eye { width: 50vw; height: 100vh; pointer-events: none; border-right: 1px solid #111; }
+    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; }
+    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px #00ffcc; }
   </style>
 </head>
 <body>
   <div id="ui">
-    <h1>SPATIAL OS</h1>
-    <button class="btn" id="start_btn">ENTER SYSTEM</button>
+    <h1>SPATIAL OS v46.8</h1>
+    <button class="btn" id="start_btn">ЗАПУСК СИСТЕМЫ</button>
   </div>
 
   <video id="input_video" playsinline muted></video>
@@ -29,114 +29,133 @@
     const videoElement = document.getElementById('input_video');
     const eyeConfigs = [];
     let currentYaw = 0, baseYaw = 0, isVR = false;
-    let initialDist = 0, initialScale = 1;
-    const windows = [];
+    let galleryWindow = null;
 
-    // Текстура видео для обоих глаз
-    const videoTexture = new THREE.VideoTexture(videoElement);
-
-    function createWindow(title, color, x, y) {
-      const group = new THREE.Group();
-      const glass = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.8, 0.5),
-        new THREE.MeshStandardMaterial({ color: color, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
-      );
-      group.add(glass);
-      group.position.set(x, y, -1.2);
-      windows.push(group);
-      return group;
+    // --- ИИ И ГОЛОС ---
+    const synth = window.speechSynthesis;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+    if (SpeechRec) {
+      recognition = new SpeechRec();
+      recognition.lang = 'ru-RU';
+      recognition.onresult = (e) => processAI(e.results[0][0].transcript.toLowerCase());
+      recognition.onend = () => setCoreColor(0x444444);
     }
 
-    function initEye(id, isRightEye) {
+    function speak(txt) {
+      const msg = new SpeechSynthesisUtterance(txt);
+      msg.lang = 'ru-RU';
+      synth.speak(msg);
+    }
+
+    function processAI(cmd) {
+      if (cmd.includes("космос") || cmd.includes("вр")) { speak("Перехожу в космос"); toggleWorld(true); }
+      else if (cmd.includes("реальн") || cmd.includes("комнат")) { speak("Возвращаюсь"); toggleWorld(false); }
+      else if (cmd.includes("закрой")) { speak("Закрываю приложения"); closeApp(); }
+      else if (cmd.includes("галерея")) { speak("Открываю галерею"); openApp(); }
+    }
+
+    function toggleWorld(val) {
+      isVR = val;
+      eyeConfigs.forEach(ec => { ec.stars.visible = isVR; ec.vPlane.visible = !isVR; });
+    }
+
+    function setCoreColor(hex) { eyeConfigs.forEach(c => c.aiCore.material.emissive.setHex(hex)); }
+
+    // --- УПРАВЛЕНИЕ ОКНАМИ ---
+    function openApp() {
+      if (galleryWindow) return;
+      const win = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.5), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.6}));
+      const closeBtn = new THREE.Mesh(new THREE.SphereGeometry(0.04), new THREE.MeshStandardMaterial({color: 0xff0000}));
+      closeBtn.position.set(0.45, 0.25, 0.01);
+      win.add(body, closeBtn);
+      win.position.set(0, 0.1, -1.2);
+      galleryWindow = win;
+      eyeConfigs.forEach(c => c.world.add(galleryWindow));
+    }
+
+    function closeApp() {
+      if (!galleryWindow) return;
+      eyeConfigs.forEach(c => c.world.remove(galleryWindow));
+      galleryWindow = null;
+    }
+
+    // --- ENGINE ---
+    const videoTexture = new THREE.VideoTexture(videoElement);
+
+    function initEye(id, isRight) {
       const container = document.getElementById(id);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, (window.innerWidth/2)/window.innerHeight, 0.1, 1000);
-      camera.position.x = isRightEye ? 0.03 : -0.03;
+      camera.position.x = isRight ? 0.035 : -0.035;
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth/2, window.innerHeight);
       container.appendChild(renderer.domElement);
 
-      // Фон-видео для Passthrough
-      const videoPlaneGeom = new THREE.PlaneGeometry(4, 2.25);
-      const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
-      const videoPlane = new THREE.Mesh(videoPlaneGeom, videoMaterial);
-      videoPlane.position.z = -2; // Чуть дальше объектов
-      camera.add(videoPlane); // Привязываем к камере, чтобы видео всегда было перед глазами
-      scene.add(camera);
+      const vPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.25), new THREE.MeshBasicMaterial({ map: videoTexture }));
+      vPlane.position.z = -2.5;
+      camera.add(vPlane); scene.add(camera);
 
       scene.add(new THREE.AmbientLight(0xffffff, 1.2));
       const world = new THREE.Group(); scene.add(world);
 
-      const stars = new THREE.Points(
-        new THREE.BufferGeometry().setFromPoints(Array(300).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(20))),
-        new THREE.PointsMaterial({color: 0xffffff, size: 0.05})
-      );
+      // Звезды
+      const stars = new THREE.Points(new THREE.BufferGeometry().setFromPoints(Array(300).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(30))), new THREE.PointsMaterial({color: 0xffffff, size: 0.05}));
       stars.visible = false; scene.add(stars);
 
-      const gallery = createWindow("Gallery", 0x00ffcc, 0.5, 0.2);
-      world.add(gallery);
+      // ИИ Ядро
+      const aiCore = new THREE.Mesh(new THREE.SphereGeometry(0.06, 32, 32), new THREE.MeshStandardMaterial({color: 0xffffff, emissive: 0x222222}));
+      aiCore.position.set(0, -0.3, -0.8);
+      scene.add(aiCore);
 
-      const dock = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 0.2, 16), 
-        new THREE.MeshStandardMaterial({color: 0xffffff})
-      );
-      dock.rotation.z = Math.PI / 2;
-      dock.position.set(0, -0.5, -0.8);
+      // Dock
+      const dock = new THREE.Group();
+      const icon = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshStandardMaterial({color: 0x00ffcc}));
+      dock.add(icon); dock.position.set(0, -0.6, -1);
       scene.add(dock);
 
       const bones = [];
       for(let i=0; i<42; i++) {
-        const b = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffcc}));
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffcc}));
         b.visible = false; scene.add(b); bones.push(b);
       }
-      return { scene, camera, renderer, world, stars, videoPlane, bones };
+      return { scene, camera, renderer, world, vPlane, aiCore, bones, stars, dock };
     }
 
     eyeConfigs.push(initEye('left', false), initEye('right', true));
 
-    function onResults(results) {
-      const hands = results.multiHandLandmarks;
-      if (hands && hands.length > 0) {
-        let h1 = hands[0];
-        const p1 = new THREE.Vector3((h1[8].x - 0.5) * 2, (0.5 - h1[8].y) * 1.5, -1.0);
-        const isTap1 = Math.sqrt(Math.pow(h1[8].x-h1[4].x, 2) + Math.pow(h1[8].y-h1[4].y, 2)) < 0.05;
+    function onResults(res) {
+      const hands = res.multiHandLandmarks;
+      if (hands) {
+        hands.forEach((marks) => {
+          const pTip = new THREE.Vector3((marks[8].x - 0.5) * 2, (0.5 - marks[8].y) * 1.5, -1.0);
+          const isTap = Math.sqrt(Math.pow(marks[8].x-marks[4].x, 2) + Math.pow(marks[8].y-marks[4].y, 2)) < 0.05;
 
-        if (isTap1) {
-          windows.forEach(win => {
-            if (p1.distanceTo(win.position) < 0.4) win.position.lerp(p1, 0.2);
-          });
-          if (p1.distanceTo(new THREE.Vector3(0, -0.5, -0.8)) < 0.3) {
-            isVR = !isVR;
-            eyeConfigs.forEach(ec => {
-                ec.stars.visible = isVR;
-                ec.videoPlane.visible = !isVR;
-            });
+          if (isTap) {
+            // Таскаем окно и закрываем
+            if (galleryWindow) {
+              const closePos = new THREE.Vector3().setFromMatrixPosition(galleryWindow.children[1].matrixWorld);
+              if (pTip.distanceTo(closePos) < 0.1) closeApp();
+              else if (pTip.distanceTo(galleryWindow.position) < 0.4) galleryWindow.position.lerp(pTip, 0.2);
+            }
+            // Активация ИИ
+            if (pTip.distanceTo(new THREE.Vector3(0, -0.3, -0.8)) < 0.15) {
+              if (recognition) { recognition.start(); setCoreColor(0xff0000); }
+            }
+            // Запуск из Dock
+            if (pTip.distanceTo(new THREE.Vector3(0, -0.6, -1)) < 0.2) openApp();
           }
-        }
 
-        if (hands.length === 2) {
-          let h2 = hands[1];
-          const p2 = new THREE.Vector3((h2[8].x - 0.5) * 2, (0.5 - h2[8].y) * 1.5, -1.0);
-          const isTap2 = Math.sqrt(Math.pow(h2[8].x-h2[4].x, 2) + Math.pow(h2[8].y-h2[4].y, 2)) < 0.05;
-          if (isTap1 && isTap2) {
-            let curDist = p1.distanceTo(p2);
-            if (initialDist === 0) { initialDist = curDist; initialScale = windows[0].scale.x; }
-            else { windows[0].scale.setScalar(initialScale * (curDist / initialDist)); }
-          }
-        } else { initialDist = 0; }
-
-        eyeConfigs.forEach(c => {
-          hands.forEach((marks, hIdx) => {
+          eyeConfigs.forEach(c => {
             marks.forEach((lp, i) => {
-              const b = c.bones[i + (hIdx*21)];
-              b.visible = true;
-              b.position.set((lp.x-0.5)*3.5, (0.5-lp.y)*2.5, -0.8);
+              const b = c.bones[i];
+              if(b) { b.visible = true; b.position.set((lp.x-0.5)*3.5, (0.5-lp.y)*2.5, -0.8); }
             });
           });
         });
       }
-
       eyeConfigs.forEach(c => {
         c.camera.rotation.set(0, currentYaw - baseYaw, 0, 'YXZ');
         c.renderer.render(c.scene, c.camera);
@@ -144,23 +163,20 @@
     }
 
     const handsMP = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-    handsMP.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6 });
+    handsMP.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
     handsMP.onResults(onResults);
 
     const cameraHelper = new Camera(videoElement, {
       onFrame: async () => { await handsMP.send({image: videoElement}); },
-      facingMode: 'environment', width: 1280, height: 720
+      facingMode: 'environment', width: 1280, height: 720, frameRate: 60
     });
 
     document.getElementById('start_btn').onclick = async function() {
-      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        await DeviceOrientationEvent.requestPermission();
-      }
-      window.addEventListener('deviceorientation', (e) => {
-        if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha);
-      }, true);
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+      window.addEventListener('deviceorientation', (e) => { if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha); }, true);
       await cameraHelper.start();
       document.getElementById('ui').style.display = 'none';
+      speak("Система готова к работе");
     };
   </script>
 </body>
