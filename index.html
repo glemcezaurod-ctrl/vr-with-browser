@@ -1,183 +1,181 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Spatial OS v46.8 - ULTIMATE</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <style>
-    body { margin: 0; overflow: hidden; background: #000; display: flex; touch-action: none; font-family: sans-serif; }
-    #input_video { display: none; }
-    .eye { width: 50vw; height: 100vh; pointer-events: none; border-right: 1px solid #111; }
-    #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; }
-    .btn { padding: 25px 60px; font-size: 1.8rem; border: none; border-radius: 50px; background: #00ffcc; color: black; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px #00ffcc; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Vision Pro X — Stereoscopic 60 FPS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { background: black; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; position: fixed; width: 100%; height: 100%; }
+        
+        .vision-container { display: flex; width: 100vw; height: 100vh; }
+        .screen { flex: 1; height: 100vh; position: relative; overflow: hidden; border-right: 1px solid rgba(255,255,255,0.1); }
+        
+        .vision-space { 
+            width: 100%; height: 100%; position: relative; 
+            perspective: 1000px; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); 
+        }
+
+        /* Стеклянные окна */
+        .vision-window {
+            position: absolute; width: 220px; height: 280px;
+            background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            color: white; display: flex; flex-direction: column; touch-action: none;
+            will-change: transform, left, top;
+        }
+
+        .window-header {
+            padding: 12px 15px; display: flex; justify-content: space-between; align-items: center;
+            background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .window-title { font-size: 13px; font-weight: 600; opacity: 0.9; }
+        .window-controls { display: flex; gap: 6px; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.2); }
+        .dot.close { background: #ff453a; }
+
+        .window-content { flex: 1; padding: 15px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+        .widget { background: rgba(255,255,255,0.1); border-radius: 15px; padding: 10px; border: 1px solid rgba(255,255,255,0.1); }
+
+        /* Интерфейс управления */
+        .ui-layer { position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 1000; }
+        .dock { 
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 15px; padding: 10px 20px; 
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(20px);
+            border-radius: 30px; border: 1px solid rgba(255,255,255,0.2); pointer-events: auto;
+        }
+        .dock-item { font-size: 24px; cursor: pointer; transition: transform 0.2s; }
+        .dock-item:active { transform: scale(1.3); }
+
+        .gyro-btn {
+            position: absolute; top: 20px; left: 20px; padding: 10px 20px;
+            background: rgba(10, 132, 255, 0.8); color: white; border-radius: 20px;
+            border: none; pointer-events: auto; font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-  <div id="ui">
-    <h1>SPATIAL OS v46.8</h1>
-    <button class="btn" id="start_btn">ЗАПУСК СИСТЕМЫ</button>
-  </div>
+    <div class="vision-container">
+        <div class="screen" id="left-eye"><div class="vision-space"></div></div>
+        <div class="screen" id="right-eye"><div class="vision-space"></div></div>
+    </div>
 
-  <video id="input_video" playsinline muted></video>
-  <div id="left" class="eye"></div>
-  <div id="right" class="eye"></div>
+    <div class="ui-layer">
+        <button class="gyro-btn" onclick="requestGyro()">Включить VR</button>
+        <div class="dock">
+            <div class="dock-item" onclick="spawnApp('📱')">📱</div>
+            <div class="dock-item" onclick="spawnApp('🌐')">🌐</div>
+            <div class="dock-item" onclick="spawnApp('📝')">📝</div>
+            <div class="dock-item" onclick="spawnApp('📷')">📷</div>
+        </div>
+    </div>
 
-  <script>
-    const videoElement = document.getElementById('input_video');
-    const eyeConfigs = [];
-    let currentYaw = 0, baseYaw = 0, isVR = false;
-    let galleryWindow = null;
+    <script>
+        let zIndex = 100;
+        let isVR = false;
 
-    // --- ИИ И ГОЛОС ---
-    const synth = window.speechSynthesis;
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition;
-    if (SpeechRec) {
-      recognition = new SpeechRec();
-      recognition.lang = 'ru-RU';
-      recognition.onresult = (e) => processAI(e.results[0][0].transcript.toLowerCase());
-      recognition.onend = () => setCoreColor(0x444444);
-    }
-
-    function speak(txt) {
-      const msg = new SpeechSynthesisUtterance(txt);
-      msg.lang = 'ru-RU';
-      synth.speak(msg);
-    }
-
-    function processAI(cmd) {
-      if (cmd.includes("космос") || cmd.includes("вр")) { speak("Перехожу в космос"); toggleWorld(true); }
-      else if (cmd.includes("реальн") || cmd.includes("комнат")) { speak("Возвращаюсь"); toggleWorld(false); }
-      else if (cmd.includes("закрой")) { speak("Закрываю приложения"); closeApp(); }
-      else if (cmd.includes("галерея")) { speak("Открываю галерею"); openApp(); }
-    }
-
-    function toggleWorld(val) {
-      isVR = val;
-      eyeConfigs.forEach(ec => { ec.stars.visible = isVR; ec.vPlane.visible = !isVR; });
-    }
-
-    function setCoreColor(hex) { eyeConfigs.forEach(c => c.aiCore.material.emissive.setHex(hex)); }
-
-    // --- УПРАВЛЕНИЕ ОКНАМИ ---
-    function openApp() {
-      if (galleryWindow) return;
-      const win = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.5), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.6}));
-      const closeBtn = new THREE.Mesh(new THREE.SphereGeometry(0.04), new THREE.MeshStandardMaterial({color: 0xff0000}));
-      closeBtn.position.set(0.45, 0.25, 0.01);
-      win.add(body, closeBtn);
-      win.position.set(0, 0.1, -1.2);
-      galleryWindow = win;
-      eyeConfigs.forEach(c => c.world.add(galleryWindow));
-    }
-
-    function closeApp() {
-      if (!galleryWindow) return;
-      eyeConfigs.forEach(c => c.world.remove(galleryWindow));
-      galleryWindow = null;
-    }
-
-    // --- ENGINE ---
-    const videoTexture = new THREE.VideoTexture(videoElement);
-
-    function initEye(id, isRight) {
-      const container = document.getElementById(id);
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(75, (window.innerWidth/2)/window.innerHeight, 0.1, 1000);
-      camera.position.x = isRight ? 0.035 : -0.035;
-
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth/2, window.innerHeight);
-      container.appendChild(renderer.domElement);
-
-      const vPlane = new THREE.Mesh(new THREE.PlaneGeometry(4, 2.25), new THREE.MeshBasicMaterial({ map: videoTexture }));
-      vPlane.position.z = -2.5;
-      camera.add(vPlane); scene.add(camera);
-
-      scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-      const world = new THREE.Group(); scene.add(world);
-
-      // Звезды
-      const stars = new THREE.Points(new THREE.BufferGeometry().setFromPoints(Array(300).fill().map(() => new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(30))), new THREE.PointsMaterial({color: 0xffffff, size: 0.05}));
-      stars.visible = false; scene.add(stars);
-
-      // ИИ Ядро
-      const aiCore = new THREE.Mesh(new THREE.SphereGeometry(0.06, 32, 32), new THREE.MeshStandardMaterial({color: 0xffffff, emissive: 0x222222}));
-      aiCore.position.set(0, -0.3, -0.8);
-      scene.add(aiCore);
-
-      // Dock
-      const dock = new THREE.Group();
-      const icon = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshStandardMaterial({color: 0x00ffcc}));
-      dock.add(icon); dock.position.set(0, -0.6, -1);
-      scene.add(dock);
-
-      const bones = [];
-      for(let i=0; i<42; i++) {
-        const b = new THREE.Mesh(new THREE.SphereGeometry(0.015, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffcc}));
-        b.visible = false; scene.add(b); bones.push(b);
-      }
-      return { scene, camera, renderer, world, vPlane, aiCore, bones, stars, dock };
-    }
-
-    eyeConfigs.push(initEye('left', false), initEye('right', true));
-
-    function onResults(res) {
-      const hands = res.multiHandLandmarks;
-      if (hands) {
-        hands.forEach((marks) => {
-          const pTip = new THREE.Vector3((marks[8].x - 0.5) * 2, (0.5 - marks[8].y) * 1.5, -1.0);
-          const isTap = Math.sqrt(Math.pow(marks[8].x-marks[4].x, 2) + Math.pow(marks[8].y-marks[4].y, 2)) < 0.05;
-
-          if (isTap) {
-            // Таскаем окно и закрываем
-            if (galleryWindow) {
-              const closePos = new THREE.Vector3().setFromMatrixPosition(galleryWindow.children[1].matrixWorld);
-              if (pTip.distanceTo(closePos) < 0.1) closeApp();
-              else if (pTip.distanceTo(galleryWindow.position) < 0.4) galleryWindow.position.lerp(pTip, 0.2);
-            }
-            // Активация ИИ
-            if (pTip.distanceTo(new THREE.Vector3(0, -0.3, -0.8)) < 0.15) {
-              if (recognition) { recognition.start(); setCoreColor(0xff0000); }
-            }
-            // Запуск из Dock
-            if (pTip.distanceTo(new THREE.Vector3(0, -0.6, -1)) < 0.2) openApp();
-          }
-
-          eyeConfigs.forEach(c => {
-            marks.forEach((lp, i) => {
-              const b = c.bones[i];
-              if(b) { b.visible = true; b.position.set((lp.x-0.5)*3.5, (0.5-lp.y)*2.5, -0.8); }
+        // Настройка синхронизации: двигаем оба окна одновременно
+        function syncWindows(syncId, left, top) {
+            const pair = document.querySelectorAll(`[data-sync-id="${syncId}"]`);
+            pair.forEach(win => {
+                win.style.left = left + 'px';
+                win.style.top = top + 'px';
             });
-          });
-        });
-      }
-      eyeConfigs.forEach(c => {
-        c.camera.rotation.set(0, currentYaw - baseYaw, 0, 'YXZ');
-        c.renderer.render(c.scene, c.camera);
-      });
-    }
+        }
 
-    const handsMP = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-    handsMP.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
-    handsMP.onResults(onResults);
+        function spawnApp(type) {
+            const syncId = 'app_' + Date.now();
+            const startX = 50 + Math.random() * 50;
+            const startY = 100 + Math.random() * 50;
 
-    const cameraHelper = new Camera(videoElement, {
-      onFrame: async () => { await handsMP.send({image: videoElement}); },
-      facingMode: 'environment', width: 1280, height: 720, frameRate: 60
-    });
+            createWindow('left-eye', type, syncId, startX, startY);
+            createWindow('right-eye', type, syncId, startX, startY);
+        }
 
-    document.getElementById('start_btn').onclick = async function() {
-      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
-      window.addEventListener('deviceorientation', (e) => { if (e.alpha !== null) currentYaw = THREE.MathUtils.degToRad(e.alpha); }, true);
-      await cameraHelper.start();
-      document.getElementById('ui').style.display = 'none';
-      speak("Система готова к работе");
-    };
-  </script>
+        function createWindow(eyeId, type, syncId, x, y) {
+            const space = document.querySelector(`#${eyeId} .vision-space`);
+            const win = document.createElement('div');
+            win.className = 'vision-window';
+            win.setAttribute('data-sync-id', syncId);
+            win.style.left = x + 'px';
+            win.style.top = y + 'px';
+
+            win.innerHTML = `
+                <div class="window-header">
+                    <span class="window-title">${type} System</span>
+                    <div class="window-controls"><div class="dot close"></div></div>
+                </div>
+                <div class="window-content">
+                    <div class="widget">${type} Running...</div>
+                    <div class="widget" style="font-size: 10px; color: #888;">CPU: 2% | 60 FPS</div>
+                </div>
+            `;
+
+            // Закрытие пары
+            win.querySelector('.close').onclick = () => {
+                document.querySelectorAll(`[data-sync-id="${syncId}"]`).forEach(el => el.remove());
+            };
+
+            // Drag-and-Drop Логика
+            let isDragging = false;
+            let offset = { x: 0, y: 0 };
+
+            const start = (e) => {
+                isDragging = true;
+                const t = e.touches ? e.touches[0] : e;
+                offset.x = t.clientX - win.offsetLeft;
+                offset.y = t.clientY - win.offsetTop;
+                document.querySelectorAll(`[data-sync-id="${syncId}"]`).forEach(el => el.style.zIndex = zIndex++);
+            };
+
+            const move = (e) => {
+                if (!isDragging) return;
+                const t = e.touches ? e.touches[0] : e;
+                const newX = t.clientX - offset.x;
+                const newY = t.clientY - offset.y;
+                syncWindows(syncId, newX, newY);
+            };
+
+            const end = () => isDragging = false;
+
+            win.addEventListener('mousedown', start);
+            win.addEventListener('touchstart', start, {passive: false});
+            window.addEventListener('mousemove', move);
+            window.addEventListener('touchmove', move, {passive: false});
+            window.addEventListener('mouseup', end);
+            window.addEventListener('touchend', end);
+
+            space.appendChild(win);
+        }
+
+        // VR Гироскоп
+        function requestGyro() {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(res => {
+                    if (res === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+                });
+            } else {
+                window.addEventListener('deviceorientation', handleOrientation);
+            }
+        }
+
+        function handleOrientation(e) {
+            const beta = Math.min(30, Math.max(-30, e.beta)) / 2; 
+            const gamma = Math.min(30, Math.max(-30, e.gamma)) / 2;
+            
+            document.querySelectorAll('.vision-window').forEach(win => {
+                win.style.transform = `rotateX(${-beta}deg) rotateY(${gamma}deg) translateZ(20px)`;
+            });
+        }
+
+        // Старт
+        spawnApp('📱');
+        spawnApp('📝');
+
+    </script>
 </body>
 </html>
